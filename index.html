@@ -950,36 +950,21 @@ function exportExcel() {
 
   } else {
     // ── MP Extracto ──────────────────────────────────────
+    // Conserva todas las columnas originales del archivo MP + agrega clasificación al final
     const data = allRows.map(r => ({
-      'TIPO DE DEUDA'    : r.type || 'Sin identificar',
-      'ID DE DASH'       : r.dashId,
-      'NOMBRE DE CUENTA' : r.nombre,
-      'FECHA DE PAGO'    : r.fecha,
-      'OP MP'            : r.idOpMP,
-      'MEDIO DE PAGO'    : r.medio,
-      'ESTADO'           : r.tipoOp,
-      'MONEDA'           : r.moneda,
-      'IMPORTE LC C/IVA' : r.monto,
-      'COMISIÓN C/IVA'   : r.comis,
-      'OTROS IMPUESTOS'  : r.imp,
+      ...r._raw,                         // todas las columnas originales de MP
+      'Type'              : r.type || 'Sin identificar',
+      'ID'                : r.dashId,
+      'Nombre de la cuenta': r.nombre,
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.length ? data : [{}]), 'Datos');
 
-    // No clasificados sheet (same columns + raw ID and detalle for debugging)
+    // No clasificados — mismas columnas originales + clasificación
     const unc = allRows.filter(r => r.type === null).map(r => ({
-      'TIPO DE DEUDA'    : 'Sin identificar',
-      'ID DE DASH'       : r.dashId,
-      'NOMBRE DE CUENTA' : r.nombre,
-      'FECHA DE PAGO'    : r.fecha,
-      'OP MP'            : r.idOpMP,
-      'MEDIO DE PAGO'    : r.medio,
-      'ESTADO'           : r.tipoOp,
-      'MONEDA'           : r.moneda,
-      'IMPORTE LC C/IVA' : r.monto,
-      'COMISIÓN C/IVA'   : r.comis,
-      'OTROS IMPUESTOS'  : r.imp,
-      'NÚMERO ID'        : r.numId,
-      'DETALLE'          : r.detalle,
+      ...r._raw,
+      'Type'              : 'Sin identificar',
+      'ID'                : r.dashId,
+      'Nombre de la cuenta': r.nombre,
     }));
     XLSX.utils.book_append_sheet(
       wb,
