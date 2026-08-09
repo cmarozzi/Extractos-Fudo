@@ -382,7 +382,7 @@ const fmtDate = v => {
     iso = String(v).split('T')[0].split(' ')[0];
   }
   const p = iso.split('-');
-  return p.length === 3 ? `${p[2]}-${p[1]}-${p[0]}` : iso;
+  return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso;
 };
 
 const fmtNum = v => {
@@ -1130,6 +1130,7 @@ function exportOdoo() {
     'Fecha'                : fmtDate(r._raw['FECHA DE APROBACIÓN'] || r._raw['FECHA DE ORIGEN'] || ''),
     'Descripción'          : '',
     'Contacto/Id de la DB' : '',
+    'Referencia'           : String(r._raw['ID DE OPERACIÓN EN MERCADO PAGO'] || ''),
     'Importe'              : fmtNum(r._raw['VALOR DE LA COMPRA']),
     'COMISIONES + IVA'     : fmtNum(r._raw['COMISIONES + IVA']),
     'Type'                 : r.type || 'Sin identificar',
