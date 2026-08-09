@@ -39,6 +39,8 @@ body{font-family:var(--font);background:var(--bg2);color:var(--text);min-height:
 .tc-pill{font-size:11px;font-family:var(--mono);padding:3px 8px;border-radius:5px;background:var(--bg2);color:var(--text2);border:.5px solid var(--border2);}
 .tc-pill span{color:var(--text);font-weight:500;}
 .rules-badge{font-size:11px;font-family:var(--mono);padding:3px 8px;border-radius:5px;background:var(--navy-bg);color:var(--navy);border:.5px solid rgba(57,56,160,.2);}
+.sheet-link{font-size:11px;font-family:var(--mono);padding:3px 8px;border-radius:5px;background:var(--green-bg);color:var(--green);border:.5px solid rgba(0,166,80,.2);text-decoration:none;transition:opacity .15s;}
+.sheet-link:hover{opacity:.75;}
 
 /* ── LAYOUT ── */
 .main{max-width:1100px;margin:0 auto;padding:2rem 1.5rem;}
@@ -185,6 +187,7 @@ table.data tr:hover td{background:var(--bg2);}
     <div class="tc-pill">CLP <span id="tc-clp">—</span></div>
     <div class="tc-pill">MXN <span id="tc-mxn">—</span></div>
     <div class="rules-badge" id="rules-badge">⚡ 0 reglas</div>
+    <a class="sheet-link" id="sheet-link" href="" target="_blank" rel="noopener">📊 Reglas</a>
   </div>
 </div>
 
@@ -304,9 +307,17 @@ table.data tr:hover td{background:var(--bg2);}
       <div id="unclass-list"></div>
     </div>
 
+    <div id="odoo-toggle" style="display:none;margin-top:1rem">
+      <label style="display:inline-flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;user-select:none">
+        <input type="checkbox" id="chk-odoo" onchange="toggleOdoo()" style="width:15px;height:15px;accent-color:var(--orange);cursor:pointer">
+        Extracto Odoo
+      </label>
+    </div>
+
     <div class="btn-row" style="margin-top:1rem">
       <button class="btn-secondary" onclick="goStep(2)">← Volver</button>
-      <button class="btn-navy" onclick="exportExcel()">⬇ Descargar Excel</button>
+      <button class="btn-navy" id="btn-export-mp" onclick="exportExcel()">⬇ Descargar Excel</button>
+      <button class="btn-navy" id="btn-export-odoo" onclick="exportOdoo()" style="display:none">⬇ Extracto Odoo</button>
     </div>
     <p style="font-size:11px;color:var(--text3);font-family:var(--mono);margin-top:8px;text-align:center" id="export-hint"></p>
   </div>
@@ -320,6 +331,7 @@ table.data tr:hover td{background:var(--bg2);}
 const CONFIG = {
   SHEETS_CSV_URL:  '',   // URL pública del CSV con las reglas custom
   APPS_SCRIPT_URL: '',   // URL del Apps Script para guardar reglas nuevas
+  SHEET_URL: 'https://docs.google.com/spreadsheets/d/1xZgjk9FwWUFL-S0TVuc6aWqbXv_D2vlx0cX0n0Jw6ko/edit#gid=0',
 };
 
 // ══════════════════════════════════════════════════════════
@@ -774,6 +786,10 @@ function renderResults() {
   } else {
     html += renderPreviewTable(allRows, 'Extracto Mercado Pago completo', true);
     document.getElementById('export-hint').textContent = 'Excel con hojas: Datos · No clasificados';
+    document.getElementById('odoo-toggle').style.display = 'block';
+    document.getElementById('chk-odoo').checked = false;
+    document.getElementById('btn-export-mp').style.display   = '';
+    document.getElementById('btn-export-odoo').style.display = 'none';
     renderUnclassified(unclassRows);
   }
   document.getElementById('result-content').innerHTML = html;
@@ -1043,6 +1059,15 @@ function selectMode(mode) {
   document.getElementById('btn-next-1').disabled = false;
 }
 
+function toggleOdoo() {
+  const on = document.getElementById('chk-odoo').checked;
+  document.getElementById('btn-export-mp').style.display   = on ? 'none'         : '';
+  document.getElementById('btn-export-odoo').style.display = on ? ''             : 'none';
+  document.getElementById('export-hint').textContent       = on
+    ? 'Excel con hojas: Extracto · Paid online'
+    : 'Excel con hojas: Datos · No clasificados';
+}
+
 function onExtractoFile(e) {
   const f = e.target.files[0]; if (!f) return;
   const name = f.name.toUpperCase();
@@ -1095,8 +1120,43 @@ function setProgress(p, label) {
 }
 
 // ══════════════════════════════════════════════════════════
+// EXPORT ODOO
+// ══════════════════════════════════════════════════════════
+function exportOdoo() {
+  const wb    = XLSX.utils.book_new();
+  const today = new Date().toISOString().split('T')[0];
+
+  const toOdooRow = r => ({
+    'Fecha'                : fmtDate(r._raw['FECHA DE APROBACIÓN'] || r._raw['FECHA DE ORIGEN'] || ''),
+    'Descripción'          : '',
+    'Contacto/Id de la DB' : '',
+    'Importe'              : fmtNum(r._raw['VALOR DE LA COMPRA']),
+    'COMISIONES + IVA'     : fmtNum(r._raw['COMISIONES + IVA']),
+    'Type'                 : r.type || 'Sin identificar',
+    'ID'                   : r.dashId,
+    'Nombre'               : r.nombre,
+    'Fecha de liberación'  : fmtDate(r._raw['FECHA DE ORIGEN'] || r._raw['FECHA DE APROBACIÓN'] || ''),
+  });
+
+  // Hoja Extracto — todos
+  XLSX.utils.book_append_sheet(wb,
+    XLSX.utils.json_to_sheet(allRows.length ? allRows.map(toOdooRow) : [{}]),
+    'Extracto');
+
+  // Hoja Paid online
+  const paidOnline = allRows.filter(r => r.type === 'Paid online');
+  XLSX.utils.book_append_sheet(wb,
+    XLSX.utils.json_to_sheet(paidOnline.length ? paidOnline.map(toOdooRow) : [{}]),
+    'Paid online');
+
+  XLSX.writeFile(wb, `extracto_odoo_${today}.xlsx`);
+}
+
+// ══════════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════════
+if (CONFIG.SHEET_URL) document.getElementById('sheet-link').href = CONFIG.SHEET_URL;
+else document.getElementById('sheet-link').style.display = 'none';
 fetchFX();
 loadCustomRules();
 </script>
