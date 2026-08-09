@@ -360,6 +360,43 @@ const getDate = v => {
   return String(v).split('T')[0].split(' ')[0];
 };
 
+// Export formatters
+const fmtDate = v => {
+  if (!v) return '';
+  let iso;
+  if (v instanceof Date) {
+    iso = v.toISOString().split('T')[0];
+  } else {
+    iso = String(v).split('T')[0].split(' ')[0];
+  }
+  const p = iso.split('-');
+  return p.length === 3 ? `${p[2]}-${p[1]}-${p[0]}` : iso;
+};
+
+const fmtNum = v => {
+  if (v === null || v === undefined || v === '') return '';
+  const n = typeof v === 'number' ? v : parseFloat(String(v).replace(',','.'));
+  if (isNaN(n)) return String(v);
+  return n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+// Process a raw MP row: format dates and numbers for export
+const fmtRaw = raw => {
+  const out = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (v instanceof Date) {
+      out[k] = fmtDate(v);
+    } else if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}[T ]/.test(v)) {
+      out[k] = fmtDate(v);
+    } else if (typeof v === 'number') {
+      out[k] = fmtNum(v);
+    } else {
+      out[k] = v;
+    }
+  }
+  return out;
+};
+
 const cleanStr = v => String(v||'').replace(/"""/g,'').replace(/"/g,'').trim();
 
 const fmtN = (n,d=2) => {
@@ -902,14 +939,14 @@ function exportExcel() {
     const data = tdRows.map(r => ({
       'TIPO DE DEUDA'   : r.type,
       'ID DE DASH'      : r.dashId,
-      'FECHA DE PAGO'   : r.fecha,
+      'FECHA DE PAGO'   : fmtDate(r.fecha),
       'OP MP'           : r.idOpMP,
       'MEDIO DE PAGO'   : r.medio,
       'ESTADO'          : r.tipoOp,
       'MONEDA'          : r.moneda,
-      'IMPORTE LC C/IVA': r.monto,
-      'COMISIÓN C/IVA'  : r.comis,
-      'OTROS IMPUESTOS' : r.imp,
+      'IMPORTE LC C/IVA': fmtNum(r.monto),
+      'COMISIÓN C/IVA'  : fmtNum(r.comis),
+      'OTROS IMPUESTOS' : fmtNum(r.imp),
     }));
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.length ? data : [{}]), 'Datos');
 
@@ -950,9 +987,9 @@ function exportExcel() {
 
   } else {
     // ── MP Extracto ──────────────────────────────────────
-    // Conserva todas las columnas originales del archivo MP + agrega clasificación al final
+    // Conserva todas las columnas originales del archivo MP (fechas y números formateados) + clasificación al final
     const data = allRows.map(r => ({
-      ...r._raw,                         // todas las columnas originales de MP
+      ...fmtRaw(r._raw),                 // columnas originales con fechas dd-mm-yyyy y números 1.234,56
       'Type'              : r.type || 'Sin identificar',
       'ID'                : r.dashId,
       'Nombre de la cuenta': r.nombre,
@@ -961,7 +998,7 @@ function exportExcel() {
 
     // No clasificados — mismas columnas originales + clasificación
     const unc = allRows.filter(r => r.type === null).map(r => ({
-      ...r._raw,
+      ...fmtRaw(r._raw),
       'Type'              : 'Sin identificar',
       'ID'                : r.dashId,
       'Nombre de la cuenta': r.nombre,
