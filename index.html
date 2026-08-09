@@ -1138,9 +1138,10 @@ function exportOdoo() {
     'Fecha de liberación'  : fmtDate(r._raw['FECHA DE ORIGEN'] || r._raw['FECHA DE APROBACIÓN'] || ''),
   });
 
-  // Hoja Extracto — todos
+  // Hoja Extracto — todos excepto Paid online (que van en su propia hoja)
+  const extractoRows = allRows.filter(r => r.type !== 'Paid online');
   XLSX.utils.book_append_sheet(wb,
-    XLSX.utils.json_to_sheet(allRows.length ? allRows.map(toOdooRow) : [{}]),
+    XLSX.utils.json_to_sheet(extractoRows.length ? extractoRows.map(toOdooRow) : [{}]),
     'Extracto');
 
   // Hoja Paid online
