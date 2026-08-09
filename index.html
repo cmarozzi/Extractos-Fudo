@@ -372,36 +372,34 @@ const getDate = v => {
   return String(v).split('T')[0].split(' ')[0];
 };
 
-// Export formatters
-const fmtDate = v => {
-  if (!v) return '';
-  let iso;
-  if (v instanceof Date) {
-    iso = v.toISOString().split('T')[0];
-  } else {
-    iso = String(v).split('T')[0].split(' ')[0];
-  }
+// Convierte cualquier valor a Date nativo (para celdas fecha en Excel)
+const toDate = v => {
+  if (!v) return null;
+  if (v instanceof Date) return v;
+  const iso = String(v).split('T')[0];
   const p = iso.split('-');
-  return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : iso;
+  if (p.length === 3) return new Date(Date.UTC(+p[0], +p[1]-1, +p[2]));
+  return null;
 };
 
-const fmtNum = v => {
-  if (v === null || v === undefined || v === '') return '';
-  const n = typeof v === 'number' ? v : parseFloat(String(v).replace(',','.'));
-  if (isNaN(n)) return String(v);
-  return n.toLocaleString('es-AR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-};
+// Aplica formato fecha dd/mm/yyyy y número #,##0.00 a todas las celdas de un worksheet
+function applyFormats(ws) {
+  for (const addr in ws) {
+    if (addr[0] === '!') continue;
+    const cell = ws[addr];
+    if (cell.t === 'd') cell.z = 'DD/MM/YYYY';
+    if (cell.t === 'n') cell.z = '#,##0.00';
+  }
+}
 
-// Process a raw MP row: format dates and numbers for export
+// Normaliza el raw para el export MP: convierte strings ISO a Date, deja números como están
 const fmtRaw = raw => {
   const out = {};
   for (const [k, v] of Object.entries(raw)) {
     if (v instanceof Date) {
-      out[k] = fmtDate(v);
+      out[k] = v;
     } else if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}[T ]/.test(v)) {
-      out[k] = fmtDate(v);
-    } else if (typeof v === 'number') {
-      out[k] = fmtNum(v);
+      out[k] = toDate(v) || v;
     } else {
       out[k] = v;
     }
@@ -955,16 +953,18 @@ function exportExcel() {
     const data = tdRows.map(r => ({
       'TIPO DE DEUDA'   : r.type,
       'ID DE DASH'      : r.dashId,
-      'FECHA DE PAGO'   : fmtDate(r.fecha),
+      'FECHA DE PAGO'   : toDate(r.fecha),
       'OP MP'           : r.idOpMP,
       'MEDIO DE PAGO'   : r.medio,
       'ESTADO'          : r.tipoOp,
       'MONEDA'          : r.moneda,
-      'IMPORTE LC C/IVA': fmtNum(r.monto),
-      'COMISIÓN C/IVA'  : fmtNum(r.comis),
-      'OTROS IMPUESTOS' : fmtNum(r.imp),
+      'IMPORTE LC C/IVA': r.monto,
+      'COMISIÓN C/IVA'  : r.comis,
+      'OTROS IMPUESTOS' : r.imp,
     }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.length ? data : [{}]), 'Datos');
+    const wsDatos = XLSX.utils.json_to_sheet(data.length ? data : [{}]);
+    applyFormats(wsDatos);
+    XLSX.utils.book_append_sheet(wb, wsDatos, 'Datos');
 
     // Pivot sheet
     const countries  = [...new Set(tdRows.map(r => r.country))];
@@ -1003,27 +1003,27 @@ function exportExcel() {
 
   } else {
     // ── MP Extracto ──────────────────────────────────────
-    // Conserva todas las columnas originales del archivo MP (fechas y números formateados) + clasificación al final
+    // Columnas originales de MP (Date y number nativos) + clasificación al final
     const data = allRows.map(r => ({
-      ...fmtRaw(r._raw),                 // columnas originales con fechas dd-mm-yyyy y números 1.234,56
+      ...fmtRaw(r._raw),
       'Type'              : r.type || 'Sin identificar',
       'ID'                : r.dashId,
       'Nombre de la cuenta': r.nombre,
     }));
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(data.length ? data : [{}]), 'Datos');
+    const wsMp = XLSX.utils.json_to_sheet(data.length ? data : [{}]);
+    applyFormats(wsMp);
+    XLSX.utils.book_append_sheet(wb, wsMp, 'Datos');
 
-    // No clasificados — mismas columnas originales + clasificación
+    // No clasificados
     const unc = allRows.filter(r => r.type === null).map(r => ({
       ...fmtRaw(r._raw),
       'Type'              : 'Sin identificar',
       'ID'                : r.dashId,
       'Nombre de la cuenta': r.nombre,
     }));
-    XLSX.utils.book_append_sheet(
-      wb,
-      XLSX.utils.json_to_sheet(unc.length ? unc : [{ nota:'Sin movimientos no clasificados ✓' }]),
-      'No clasificados'
-    );
+    const wsUnc = XLSX.utils.json_to_sheet(unc.length ? unc : [{ nota:'Sin movimientos no clasificados ✓' }]);
+    applyFormats(wsUnc);
+    XLSX.utils.book_append_sheet(wb, wsUnc, 'No clasificados');
     XLSX.writeFile(wb, `extracto_mp_${today}.xlsx`);
   }
 }
@@ -1122,34 +1122,49 @@ function setProgress(p, label) {
 // ══════════════════════════════════════════════════════════
 // EXPORT ODOO
 // ══════════════════════════════════════════════════════════
+
+// Fecha de liberación:
+//   Paid online ARG/CHL → aprobación + 10 días
+//   Paid online MEX     → aprobación + 12 días
+//   Todo lo demás       → fecha de aprobación
+function calcFechaLib(r) {
+  const base = toDate(r._raw['FECHA DE APROBACIÓN'] || r._raw['FECHA DE ORIGEN']);
+  if (!base) return null;
+  if (r.type !== 'Paid online') return base;
+  const days = r.country === 'MEX' ? 12 : 10;
+  const d = new Date(base);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+}
+
 function exportOdoo() {
   const wb    = XLSX.utils.book_new();
   const today = new Date().toISOString().split('T')[0];
 
   const toOdooRow = r => ({
-    'Fecha'                : fmtDate(r._raw['FECHA DE APROBACIÓN'] || r._raw['FECHA DE ORIGEN'] || ''),
+    'Fecha'                : toDate(r._raw['FECHA DE APROBACIÓN'] || r._raw['FECHA DE ORIGEN']),
     'Descripción'          : '',
     'Contacto/Id de la DB' : '',
     'Referencia'           : String(r._raw['ID DE OPERACIÓN EN MERCADO PAGO'] || ''),
-    'Importe'              : fmtNum(r._raw['VALOR DE LA COMPRA']),
-    'COMISIONES + IVA'     : fmtNum(r._raw['COMISIONES + IVA']),
+    'Importe'              : toNum(r._raw['VALOR DE LA COMPRA']),
+    'COMISIONES + IVA'     : toNum(r._raw['COMISIONES + IVA']),
     'Type'                 : r.type || 'Sin identificar',
     'ID'                   : r.dashId,
     'Nombre'               : r.nombre,
-    'Fecha de liberación'  : fmtDate(r._raw['FECHA DE ORIGEN'] || r._raw['FECHA DE APROBACIÓN'] || ''),
+    'Fecha de liberación'  : calcFechaLib(r),
   });
 
-  // Hoja Extracto — todos excepto Paid online (que van en su propia hoja)
+  // Hoja Extracto — todos excepto Paid online
   const extractoRows = allRows.filter(r => r.type !== 'Paid online');
-  XLSX.utils.book_append_sheet(wb,
-    XLSX.utils.json_to_sheet(extractoRows.length ? extractoRows.map(toOdooRow) : [{}]),
-    'Extracto');
+  const wsExt = XLSX.utils.json_to_sheet(extractoRows.length ? extractoRows.map(toOdooRow) : [{}]);
+  applyFormats(wsExt);
+  XLSX.utils.book_append_sheet(wb, wsExt, 'Extracto');
 
   // Hoja Paid online
   const paidOnline = allRows.filter(r => r.type === 'Paid online');
-  XLSX.utils.book_append_sheet(wb,
-    XLSX.utils.json_to_sheet(paidOnline.length ? paidOnline.map(toOdooRow) : [{}]),
-    'Paid online');
+  const wsPO = XLSX.utils.json_to_sheet(paidOnline.length ? paidOnline.map(toOdooRow) : [{}]);
+  applyFormats(wsPO);
+  XLSX.utils.book_append_sheet(wb, wsPO, 'Paid online');
 
   XLSX.writeFile(wb, `extracto_odoo_${today}.xlsx`);
 }
