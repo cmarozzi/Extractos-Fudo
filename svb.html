@@ -888,7 +888,10 @@ function renderTable() {
             <input type="text" id="fixMatchText-${i}" value="${escapeHtml(stripBnfOrgPrefix(r.referencia))}">
           </div>
         </div>
-        <button class="btn-primary btn-sm" data-fixidx="${i}" style="margin-top:6px;">Guardar regla y corregir</button>
+        <div style="display:flex;gap:8px;margin-top:6px;">
+          <button class="btn-ghost btn-sm" data-solofix="${i}">Corregir solo esta vez</button>
+          <button class="btn-primary btn-sm" data-fixidx="${i}">Guardar regla y corregir</button>
+        </div>
       </div>` : '';
     const toggleBtn = needsFix
       ? `<button class="btn-ghost btn-sm" data-toggleidx="${i}" style="margin-top:6px;">Corregir</button>`
@@ -912,6 +915,24 @@ function renderTable() {
       document.getElementById(`fix-${btn.dataset.toggleidx}`).classList.toggle('open');
     });
   });
+  // "Corregir solo esta vez" — aplica sin guardar regla
+  body.querySelectorAll('[data-solofix]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const idx        = btn.dataset.solofix;
+      const contacto   = document.getElementById(`fixContacto-${idx}`).value.trim();
+      const descripcion = document.getElementById(`fixDescripcion-${idx}`).value.trim();
+      const row        = processedRows[parseInt(idx, 10)];
+      if (!row) return;
+      if (contacto)   row.contacto    = contacto;
+      if (descripcion) row.descripcion = descripcion;
+      row.origen = 'manual';
+      updateStats();
+      renderTable();
+      showToast('Corrección aplicada a esta fila');
+    });
+  });
+
+  // "Guardar regla y corregir" — guarda regla permanente y reprocesa
   body.querySelectorAll('[data-fixidx]').forEach(btn => {
     btn.addEventListener('click', async () => {
       const idx        = btn.dataset.fixidx;
@@ -919,7 +940,7 @@ function renderTable() {
       const categoria  = document.getElementById(`fixCategoria-${idx}`).value;
       const descripcion = document.getElementById(`fixDescripcion-${idx}`).value.trim();
       const matchText  = document.getElementById(`fixMatchText-${idx}`).value.trim();
-      if (!matchText) { showToast('Falta el texto a detectar'); return; }
+      if (!matchText) { showToast('Falta el texto a detectar en la referencia'); return; }
       const rule = {
         id         : 'svb-' + Date.now(),
         builtin    : false,
@@ -934,7 +955,7 @@ function renderTable() {
       updateRulesBadge();
       runProcessing();
       await saveRuleRemote(rule);
-      showToast('Regla guardada — se aplicará en esta y futuras corridas');
+      showToast('Regla guardada — se aplica en esta y futuras corridas');
     });
   });
   applyFilter();
