@@ -220,17 +220,22 @@ table.data tr:hover td{background:var(--bg2);}
           <p>Clasifica todos los movimientos: Hardware Sales, SmartPos, SaaS, Payouts y más.</p>
         </div>
 
-        <div class="menu-card coming-soon">
-          <span class="soon-badge">Próximamente</span>
+        <div class="menu-card" onclick="window.location.href='dlocal.html'" style="cursor:pointer;">
           <span class="mc-icon">🌎</span>
           <h3>Extracto dLocal</h3>
-          <p>Procesamiento de extractos dLocal.</p>
+          <p>Procesa extractos dLocal (Fudo + Brasil): comisiones, chargebacks y exportación para Odoo.</p>
         </div>
 
         <div class="menu-card" onclick="window.location.href='svb.html'" style="cursor:pointer;">
           <span class="mc-icon">🏦</span>
           <h3>Extracto SVB</h3>
           <p>Clasificá movimientos bancarios SVB contra proveedores Odoo y reglas personalizadas.</p>
+        </div>
+
+        <div class="menu-card" onclick="window.location.href='banco-estado.html'" style="cursor:pointer;">
+          <span class="mc-icon">🇨🇱</span>
+          <h3>Extracto Banco Estado</h3>
+          <p>Clasifica cartolas de Banco Estado Chile: sueldos, proveedores, Previred, PAC Crédito y más.</p>
         </div>
 
         <div class="menu-card coming-soon">
@@ -346,6 +351,8 @@ const TYPE_BADGE = {
   'Hardware Sales'   : 'b-hardware',
   'SmartPos Sales'   : 'b-smartpos',
   'Payouts'          : 'b-payouts',
+  'Payout'           : 'b-payouts',
+  'Payin'            : 'b-online',
   'Supplier payments': 'b-supplier',
 };
 
@@ -585,8 +592,9 @@ function classifyRow(raw, country) {
   else if (numId.startsWith('TFP:') || detLC.startsWith('tfp:') ||
            detLC.includes('terminal fudo') || detLC.includes(' tfp') || detLC.includes('tpf:')) {
     type = 'SmartPos Sales';
-    if (numId.startsWith('TFP:'))        dashId = numId.split(':')[1] || '';
-    else if (detLC.startsWith('tfp:'))   dashId = detLC.split(':')[1] || '';
+    if (numId.startsWith('TFP:'))        dashId = (numId.split(':')[1] || '').trim();
+    else if (detLC.startsWith('tfp:'))   dashId = (detLC.split(':')[1] || '').trim();
+    if (dashId) { const m = accounts.byId[dashId]; if (m) { nombre = m.nombre; } }
   }
 
   // ── 3. Payouts ───────────────────────────────────────────
@@ -762,7 +770,7 @@ function renderResults() {
     pillsHtml += `<div class="info-pill">Paid online  <span>${(counts['Paid online'] ||0).toLocaleString('es-AR')}</span></div>`;
     pillsHtml += `<div class="info-pill">Paid offline <span>${(counts['Paid offline']||0).toLocaleString('es-AR')}</span></div>`;
   } else {
-    const order = ['Paid online','Paid offline','SaaS','Hardware Sales','SmartPos Sales','Payouts','Supplier payments'];
+    const order = ['Paid online','Paid offline','SaaS','Hardware Sales','SmartPos Sales','Payouts','Payout','Payin','Supplier payments'];
     order.forEach(k => {
       if (counts[k]) pillsHtml += `<div class="info-pill">${k} <span>${counts[k].toLocaleString('es-AR')}</span></div>`;
     });
@@ -905,6 +913,7 @@ function renderUnclassified(rows) {
   list.innerHTML = rows.map((r, i) => `
     <div class="unclass-item" id="ui-${i}">
       <div class="unclass-field"><strong>${r.numId||'—'}</strong>Número ID</div>
+      <div class="unclass-field"><strong style="font-family:var(--mono);font-size:11px;color:var(--navy)">${r.idOpMP||'—'}</strong>Op MP</div>
       <div class="unclass-field"><strong style="max-width:200px;overflow:hidden;text-overflow:ellipsis;display:block">${r.detalle||'—'}</strong>Detalle</div>
       <div class="unclass-field"><strong>${r.tipoOp} · ${r.moneda} ${fmtN(r.monto)}</strong>Op · Monto</div>
       <div class="unclass-assign">
@@ -916,6 +925,8 @@ function renderUnclassified(rows) {
           <option value="Hardware Sales">Hardware Sales</option>
           <option value="SmartPos Sales">SmartPos Sales</option>
           <option value="Payouts">Payouts</option>
+          <option value="Payout">Payout</option>
+          <option value="Payin">Payin</option>
           <option value="Supplier payments">Supplier payments</option>
           <option value="ignorar">Ignorar</option>
         </select>
@@ -961,7 +972,7 @@ function exportExcel() {
       'COMISIÓN C/IVA'  : r.comis,
       'OTROS IMPUESTOS' : r.imp,
     }));
-    const wsDatos = XLSX.utils.json_to_sheet(data.length ? data : [{}]);
+    const wsDatos = XLSX.utils.json_to_sheet(data.length ? data : [{}], {cellDates:true});
     applyFormats(wsDatos);
     XLSX.utils.book_append_sheet(wb, wsDatos, 'Datos');
 
@@ -997,7 +1008,7 @@ function exportExcel() {
       });
       pivotRows.push({});   // blank separator between countries
     });
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pivotRows.length ? pivotRows : [{}]), 'Pivot');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pivotRows.length ? pivotRows : [{}], {cellDates:true}), 'Pivot');
     XLSX.writeFile(wb, `tu_delivery_mp_${today}.xlsx`);
 
   } else {
@@ -1008,8 +1019,9 @@ function exportExcel() {
       'Type'              : r.type || 'Sin identificar',
       'ID'                : r.dashId,
       'Nombre de la cuenta': r.nombre,
+      'Fecha de liberación': calcFechaLib(r),
     }));
-    const wsMp = XLSX.utils.json_to_sheet(data.length ? data : [{}]);
+    const wsMp = XLSX.utils.json_to_sheet(data.length ? data : [{}], {cellDates:true});
     applyFormats(wsMp);
     XLSX.utils.book_append_sheet(wb, wsMp, 'Datos');
 
@@ -1019,8 +1031,9 @@ function exportExcel() {
       'Type'              : 'Sin identificar',
       'ID'                : r.dashId,
       'Nombre de la cuenta': r.nombre,
+      'Fecha de liberación': calcFechaLib(r),
     }));
-    const wsUnc = XLSX.utils.json_to_sheet(unc.length ? unc : [{ nota:'Sin movimientos no clasificados ✓' }]);
+    const wsUnc = XLSX.utils.json_to_sheet(unc.length ? unc : [{ nota:'Sin movimientos no clasificados ✓' }], {cellDates:true});
     applyFormats(wsUnc);
     XLSX.utils.book_append_sheet(wb, wsUnc, 'No clasificados');
     XLSX.writeFile(wb, `extracto_mp_${today}.xlsx`);
@@ -1155,13 +1168,13 @@ function exportOdoo() {
 
   // Hoja Extracto — todos excepto Paid online
   const extractoRows = allRows.filter(r => r.type !== 'Paid online');
-  const wsExt = XLSX.utils.json_to_sheet(extractoRows.length ? extractoRows.map(toOdooRow) : [{}]);
+  const wsExt = XLSX.utils.json_to_sheet(extractoRows.length ? extractoRows.map(toOdooRow) : [{}], {cellDates:true});
   applyFormats(wsExt);
   XLSX.utils.book_append_sheet(wb, wsExt, 'Extracto');
 
   // Hoja Paid online
   const paidOnline = allRows.filter(r => r.type === 'Paid online');
-  const wsPO = XLSX.utils.json_to_sheet(paidOnline.length ? paidOnline.map(toOdooRow) : [{}]);
+  const wsPO = XLSX.utils.json_to_sheet(paidOnline.length ? paidOnline.map(toOdooRow) : [{}], {cellDates:true});
   applyFormats(wsPO);
   XLSX.utils.book_append_sheet(wb, wsPO, 'Paid online');
 
